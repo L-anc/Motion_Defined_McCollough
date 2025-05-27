@@ -1,1 +1,2 @@
-This project is designed to implement the video technique motion extraction in real-time for motion detection applications. The method is implemented as described in "https://youtu.be/NSS6yAMZF78?si=W8myzpsgZo_6Fsn6" by Posy with additional post-processing using opencv.
+# static
+Static and sliding animation generator for testing with the Mccollough effect.
