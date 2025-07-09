@@ -24,14 +24,12 @@
 </head>
 <body>
   <div class="controls">
-    <a href = "test.html">Test</a>
+    <label><input name="motion" id="slideType" value="slide" type="radio" checked/> Sliding Dots</label>
+    <label><input name="motion" id="regenType" value="regen" type="radio"/> Regenerating Dots</label>
+
     <label>numBars:
       <input id="numBars" type="range" min="1" max="32" step="1" value="16">
       <span id="numBarsVal" class="value"></span>
-    </label>
-    <label>Random Static Rate:
-      <input id="staticRate" type="range" min="0.01" max="2.0" step="0.01" value="1.0">
-      <span id="staticRateVal" class="value"></span>
     </label>
     <label>pixelSize:
       <input id="pixelSize" type="range" min="0.5" max="10.0" step="0.5" value="1.0">
@@ -45,17 +43,235 @@
       <input id="colorStr" type="range" min="0.0" max="1.0" step="0.005" value="0.0">
       <span id="colorStrVal" class="value"></span>
     </label>
-    <label>Sliding Static Rate:
+    <label>speed:
       <input id="speed" type="range" min="0.1" max="10.0" step="0.1" value="1.0">
       <span id="speedVal" class="value"></span>
     </label>
-    <label><input id="motion"   type="checkbox" checked> Motion</label>
-    <label><input id="randStat" type="checkbox"> Random Static</label>
-    <label><input id="colWhite" type="checkbox"> Training-motion defined</label>
   </div>
 
   <script>
-    stimGen
+    const PANEL = 384;
+    const config = {
+        motionType: 'slide',
+        trainTime: 10,
+        numBars: 16,
+        speed: 6,
+        pixelSize: 1,
+      };
+
+    let params = { numBars:16, pixelSize:1, blend:0, colorStr:0, speed:6 };
+    let regenEnabled = false, lastRegen = 0;
+    let hStripe = [], hGap = [], vStripe = [], vGap = [];
+
+    //Timing
+    let currentMode = 'horizontal';   // Start with horizontal stripes
+    let switchInterval = 2000;         // 2 seconds in milliseconds
+    let totalDuration = 10 * 60 * 1000; // 10 minutes in milliseconds
+    let startTime;
+
+    function setup() {
+      pixelDensity(1);
+      noSmooth();
+      createCanvas(PANEL, PANEL);
+      frameRate(30);
+      wireControls();
+      regenAll();
+      startTime = millis();  // record the start time in milliseconds
+    }
+
+    function draw() {
+      background(0);
+
+      const nb = params.numBars,
+            ph = floor(PANEL/(2*nb)),
+            f  = frameCount,
+            rf = max(1, round(params.speed)),
+            elapsed = millis() - startTime;
+
+      if (hGap.length !== nb) {
+        regenAll(); lastRegen = f;
+      } else if (regenEnabled && f - lastRegen >= rf) {
+        regenStripes(); lastRegen = f;
+      }
+
+      // Switch currentMode every 2 seconds, stop after 10 minutes
+      if (elapsed < totalDuration) {
+        if (floor(elapsed / switchInterval) % 2 === 0) {
+          currentMode = 'horizontal';
+        } else {
+          currentMode = 'vertical';
+        }
+      } else {
+        currentMode = 'horizontal';
+        noLoop(); //stop animation completely after 10 minutes
+      }
+
+      const offH = regenEnabled ? 0 : (floor(f * params.speed) % PANEL);
+      const offV = regenEnabled ? 0 : (floor(f * params.speed) % PANEL);
+
+      if (currentMode === 'horizontal') {
+        // Draw horizontal stripes only (top-left quadrant)
+        push(); 
+        drawingContext.beginPath(); 
+        drawingContext.rect(0, 0, PANEL, PANEL); 
+        drawingContext.clip();
+        for (let i = 0; i < nb; i++) {
+          const y0 = i*2*ph;
+          image(hStripe[i], -offH,       y0);
+          image(hStripe[i], PANEL-offH,  y0);
+          image(hGap[i],    0,           y0+ph);
+
+          if (params.blend > 0) {
+            noStroke();
+            fill(255, 255 * params.blend);
+            rect(0, y0, PANEL, ph);
+            fill(0, 255 * params.blend);
+            rect(0, y0+ph, PANEL, ph);
+          }
+          if (params.colorStr > 0) {
+            noStroke();
+            fill(255, 0, 0, 255 * params.colorStr);
+            rect(0, y0, PANEL, ph);
+          }
+        }
+        pop();
+      } else if (currentMode === 'vertical') {
+        // Draw vertical stripes only (top-right quadrant)
+        push(); 
+        drawingContext.beginPath(); 
+        drawingContext.rect(0, 0, PANEL, PANEL); 
+        drawingContext.clip();
+        for (let i = 0; i < nb; i++) {
+          const x0 = i*2*ph;
+          image(vStripe[i], x0,      -offV);
+          image(vStripe[i], x0,      PANEL-offV);
+          image(vGap[i],    x0+ph,   0);
+
+          if (params.blend > 0) {
+            noStroke();
+            fill(255, 255 * params.blend);
+            rect(x0, 0, ph, PANEL);
+            fill(0, 255 * params.blend);
+            rect(x0+ph, 0, ph, PANEL);
+          }
+          if (params.colorStr > 0) {
+            noStroke();
+            fill(0, 255, 0, 255 * params.colorStr);
+            rect(x0, 0, ph, PANEL);
+          }
+        }
+        pop();
+      }
+
+      // ── TRAINING-MOTION DEFINED: swap any remaining pure-white pixels
+      loadPixels();
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = 4 * (y * width + x);
+          if (
+            pixels[idx]   === 255 &&
+            pixels[idx+1] === 255 &&
+            pixels[idx+2] === 255
+          ) {
+            // determine quadrant:
+            if (currentMode === 'horizontal') {
+              // top-left → red
+              pixels[idx] = 255; pixels[idx+1] = 0;   pixels[idx+2] = 0;
+            } else if (currentMode === 'vertical') {
+              // top-right → green
+              pixels[idx] = 0;   pixels[idx+1] = 255; pixels[idx+2] = 0;
+            }
+          }
+        }
+      }
+      updatePixels();
+    }
+
+
+    function regenAll() {
+      hStripe = []; hGap = []; vStripe = []; vGap = [];
+      const nb = params.numBars,
+            ph = floor(PANEL/(2*nb)),
+            scaleLow = 1/params.pixelSize,
+            lowH = max(1, floor(ph * scaleLow)),
+            lowW = max(1, floor(PANEL * scaleLow));
+
+      for (let i = 0; i < nb; i++) {
+        const A = Array.from({length: lowH}, () => Array.from({length: lowW}, () => random()>0.5?1:0));
+        const B = Array.from({length: lowH}, () => Array.from({length: lowW}, () => random()>0.5?1:0));
+        let S = createImage(PANEL, ph), G = createImage(PANEL, ph);
+        S.loadPixels(); G.loadPixels();
+        for (let y = 0; y < ph; y++) {
+          const ly = floor(y*scaleLow);
+          for (let x = 0; x < PANEL; x++) {
+            const lx = floor(x*scaleLow),
+                  idx = 4*(y*PANEL + x),
+                  v1  = A[ly][lx]*255,
+                  v2  = B[ly][lx]*255;
+            S.pixels[idx]   = v1; S.pixels[idx+1] = v1; S.pixels[idx+2] = v1; S.pixels[idx+3] = 255;
+            G.pixels[idx]   = v2; G.pixels[idx+1] = v2; G.pixels[idx+2] = v2; G.pixels[idx+3] = 255;
+          }
+        }
+        S.updatePixels(); G.updatePixels();
+        hStripe.push(S); hGap.push(G);
+
+        const vs = createGraphics(ph, PANEL),
+              vg = createGraphics(ph, PANEL);
+        vs.noSmooth(); vg.noSmooth();
+        vs.push(); vs.translate(0,PANEL); vs.rotate(-HALF_PI); vs.image(S,0,0); vs.pop();
+        vg.push(); vg.translate(0,PANEL); vg.rotate(-HALF_PI); vg.image(G,0,0); vs.pop();
+        vStripe.push(vs); vGap.push(vg);
+      }
+    }
+
+    function regenStripes() {
+      hStripe = []; vStripe = [];
+      const nb = params.numBars,
+            ph = floor(PANEL/(2*nb)),
+            scaleLow = 1/params.pixelSize,
+            lowH = max(1, floor(ph*scaleLow)),
+            lowW = max(1, floor(PANEL*scaleLow));
+      for (let i = 0; i < nb; i++) {
+        const A = Array.from({length: lowH}, () => Array.from({length: lowW}, () => random()>0.5?1:0));
+        let S = createImage(PANEL, ph);
+        S.loadPixels();
+        for (let y = 0; y < ph; y++) {
+          const ly = floor(y*scaleLow);
+          for (let x = 0; x < PANEL; x++) {
+            const lx = floor(x*scaleLow),
+                  idx = 4*(y*PANEL + x),
+                  v1  = A[ly][lx]*255;
+            S.pixels[idx]   = v1; S.pixels[idx+1] = v1; S.pixels[idx+2] = v1; S.pixels[idx+3] = 255;
+          }
+        }
+        S.updatePixels();
+        hStripe.push(S);
+        const vs = createGraphics(ph, PANEL);
+        vs.noSmooth();
+        vs.push(); vs.translate(0,PANEL); vs.rotate(-HALF_PI); vs.image(S,0,0); vs.pop();
+        vStripe.push(vs);
+      }
+    }
+
+    function wireControls() {
+      function hook(id, key, fmt) {
+        const s = document.getElementById(id),
+              v = document.getElementById(id+'Val');
+        s.oninput = () => {
+          params[key] = parseFloat(s.value);
+          v.textContent = fmt(params[key]);
+          if (key==='numBars') regenAll();
+        };
+        s.oninput();
+      }
+      hook('numBars','numBars', v=>v.toFixed(0));
+      hook('pixelSize','pixelSize', v=>v.toFixed(1));
+      hook('blend','blend', v=>v.toFixed(2));
+      hook('colorStr','colorStr', v=>v.toFixed(2));
+      hook('speed','speed', v=>v.toFixed(1));
+      document.getElementById('slideType').onchange = e => regenEnabled       = !e.target.checked;
+      document.getElementById('regenType').onchange = e => regenEnabled       =  e.target.checked;
+    }
   </script>
 </body>
 </html>
